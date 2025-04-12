@@ -1,2 +1,2 @@
 FROM mistral
-ADAPTER /путь до finetuned_model
+ADAPTER ./finetuned_model
