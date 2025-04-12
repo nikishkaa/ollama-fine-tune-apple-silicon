@@ -1,0 +1,2 @@
+FROM mistral
+ADAPTER ./finetuned_model 
