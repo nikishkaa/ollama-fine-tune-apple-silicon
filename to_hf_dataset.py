@@ -9,7 +9,7 @@ def convert_to_hf_dataset(input_file, output_dir="hf_dataset"):
     # Преобразуем данные в формат для датасета
     texts = []
     for item in data:
-        # Форматируем текст в стиле Mistral
+        # Форматируем текст в стиле Llama 2
         text = f"<s>[INST] {item['instruction']} [/INST] {item['output']}</s>"
         texts.append({"text": text})
     

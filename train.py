@@ -6,7 +6,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 import os
 
@@ -18,19 +18,15 @@ def train_model():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     
     # Загружаем модель и токенизатор
-    model_name = "mistralai/Mistral-7B-v0.1"
+    model_name = "meta-llama/Llama-2-7b-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        load_in_8bit=True,
         device_map="auto",
         torch_dtype=torch.float16,
     )
-    
-    # Подготавливаем модель для обучения с LoRA
-    model = prepare_model_for_kbit_training(model)
     
     # Настраиваем LoRA
     lora_config = LoraConfig(
