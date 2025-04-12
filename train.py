@@ -1,34 +1,32 @@
 import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    TrainingArguments,
-    Trainer,
-    DataCollatorForLanguageModeling
-)
-from peft import LoraConfig, get_peft_model
-from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from datasets import load_from_disk
 import os
 
 def train_model():
-    # Загружаем датасет
-    dataset = load_dataset("hf_dataset")
+    # Load dataset
+    dataset = load_from_disk("hf_dataset")
     
-    # Определяем устройство для обучения
+    # Determine device
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    print(f"Using device: {device}")
     
-    # Загружаем модель и токенизатор
-    model_name = "meta-llama/Llama-2-7b-hf"
+    # Load model and tokenizer
+    model_name = "mistralai/Mistral-7B-Instruct-v0.2"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         device_map="auto",
-        torch_dtype=torch.float16,
+        torch_dtype="auto"
     )
     
-    # Настраиваем LoRA
+    # Prepare model for training
+    model = prepare_model_for_kbit_training(model)
+    
+    # Configure LoRA
     lora_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -40,7 +38,7 @@ def train_model():
     
     model = get_peft_model(model, lora_config)
     
-    # Токенизируем датасет
+    # Tokenize dataset
     def tokenize_function(examples):
         return tokenizer(
             examples["text"],
@@ -52,32 +50,33 @@ def train_model():
     
     tokenized_dataset = dataset.map(tokenize_function, batched=True)
     
-    # Настраиваем аргументы обучения
+    # Training arguments
     training_args = TrainingArguments(
         output_dir="./finetuned_model",
         num_train_epochs=3,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
-        warmup_steps=100,
         learning_rate=2e-4,
         fp16=True,
-        logging_steps=10,
         save_steps=100,
-        save_total_limit=3,
+        logging_steps=10,
+        optim="paged_adamw_8bit"
     )
     
-    # Создаем тренер
+    # Create trainer
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset["train"],
-        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        train_dataset=tokenized_dataset,
+        data_collator=lambda data: {'input_ids': torch.stack([f['input_ids'] for f in data]),
+                                  'attention_mask': torch.stack([f['attention_mask'] for f in data]),
+                                  'labels': torch.stack([f['input_ids'] for f in data])}
     )
     
-    # Обучаем модель
+    # Train
     trainer.train()
     
-    # Сохраняем модель
+    # Save model
     model.save_pretrained("./finetuned_model")
     tokenizer.save_pretrained("./finetuned_model")
 
