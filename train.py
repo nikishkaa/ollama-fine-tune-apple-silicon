@@ -1,73 +1,89 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer, \
-    DataCollatorForLanguageModeling
-from peft import LoraConfig, get_peft_model
-from datasets import load_from_disk
 import torch
-from to_hf_dataset import prepare_dataset
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TrainingArguments,
+    Trainer,
+    DataCollatorForLanguageModeling
+)
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from datasets import load_dataset
+import os
 
 def train_model():
-    # Подготовка данных
-    dataset = prepare_dataset("your_data.csv")
-    dataset.save_to_disk("hf_dataset")
-
-    # Определение устройства
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    # Загрузка модели
-    model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2").to(device)
-    tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.2")
+    # Загружаем датасет
+    dataset = load_dataset("hf_dataset")
+    
+    # Определяем устройство для обучения
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    
+    # Загружаем модель и токенизатор
+    model_name = "mistralai/Mistral-7B-v0.1"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
-
-    # Настройка LoRA
-    peft_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "v_proj"],
+    
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        load_in_8bit=True,
+        device_map="auto",
+        torch_dtype=torch.float16,
+    )
+    
+    # Подготавливаем модель для обучения с LoRA
+    model = prepare_model_for_kbit_training(model)
+    
+    # Настраиваем LoRA
+    lora_config = LoraConfig(
+        r=16,
+        lora_alpha=32,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM"
     )
-
-    # Токенизация
+    
+    model = get_peft_model(model, lora_config)
+    
+    # Токенизируем датасет
     def tokenize_function(examples):
         return tokenizer(
             examples["text"],
-            max_length=512,
             padding="max_length",
             truncation=True,
+            max_length=512,
+            return_tensors="pt"
         )
-
-    tokenized_dataset = dataset.map(
-        tokenize_function,
-        batched=True,
-        remove_columns=dataset.column_names
-    )
-
-    # Параметры обучения
+    
+    tokenized_dataset = dataset.map(tokenize_function, batched=True)
+    
+    # Настраиваем аргументы обучения
     training_args = TrainingArguments(
-        output_dir="./results",
+        output_dir="./finetuned_model",
         num_train_epochs=3,
-        per_device_train_batch_size=1,  # Уменьшаем размер батча
-        learning_rate=1e-5,
-        fp16=False,
+        per_device_train_batch_size=4,
+        gradient_accumulation_steps=4,
+        warmup_steps=100,
+        learning_rate=2e-4,
+        fp16=True,
         logging_steps=10,
-        save_strategy="no"
+        save_steps=100,
+        save_total_limit=3,
     )
-
-    # Запуск обучения
-    model = get_peft_model(model, peft_config)
-    model.print_trainable_parameters()
-
+    
+    # Создаем тренер
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset,
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)
+        train_dataset=tokenized_dataset["train"],
+        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
-
+    
+    # Обучаем модель
     trainer.train()
+    
+    # Сохраняем модель
     model.save_pretrained("./finetuned_model")
+    tokenizer.save_pretrained("./finetuned_model")
 
 if __name__ == "__main__":
     train_model() 
