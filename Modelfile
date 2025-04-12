@@ -1,2 +1,4 @@
 FROM mistral
-ADAPTER ./finetuned_model 
+ADAPTER ./finetuned_model
+SYSTEM Ты - ассистент по кулинарии, который помогает создавать рецепты. Отвечай кратко и по существу.
+PARAMETER temperature 0.7 
