@@ -1,23 +1,18 @@
+import pandas as pd
 from datasets import Dataset
-import json
 
-def convert_to_hf_dataset(input_file, output_dir="hf_dataset"):
-    # Читаем входной файл
-    with open(input_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
-    # Преобразуем данные в формат для датасета
-    texts = []
-    for item in data:
-        # Форматируем текст в стиле Llama 2
-        text = f"<s>[INST] {item['instruction']} [/INST] {item['output']}</s>"
-        texts.append({"text": text})
-    
-    # Создаем датасет
-    dataset = Dataset.from_dict({"text": [item["text"] for item in texts]})
-    
-    # Сохраняем датасет
-    dataset.save_to_disk(output_dir)
 
-if __name__ == "__main__":
-    convert_to_hf_dataset("training_data.json") 
+def prepare_dataset():
+   df = pd.read_csv("your_data.csv", sep=';', encoding='utf-8')
+
+
+   def generate_text(row):
+       return f"""<s>[INST] Создай тест-кейс для: {row['description']} [/INST]
+       Название: {row['name']}
+       Предварительные условия: {row['precondition']}
+       Сценарий: {row['scenario']}
+       Ожидаемый результат: {row['expected_result']}</s>"""
+
+
+   df['text'] = df.apply(generate_text, axis=1)
+   return Dataset.from_pandas(df[['text']])

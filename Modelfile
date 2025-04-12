@@ -1,5 +1,2 @@
-FROM meta-llama/Llama-2-7b-hf
-
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
-PARAMETER max_tokens 512 
+FROM mistral
+ADAPTER /путь до finetuned_model
